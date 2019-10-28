@@ -3,6 +3,7 @@ import math
 import numpy as np
 import torch
 import torch.nn.functional as F
+from tqdm import tqdm
 from torch_scatter import scatter_add
 from torch_geometric.data import Data
 
@@ -165,50 +166,83 @@ def sort_and_rank(score, target):
     indices = indices[:, 1].view(-1)
     return indices
 
-def perturb_and_get_rank(embedding, w, a, r, b, test_size, batch_size=100):
-    """ Perturb one element in the triplets
-    """
-    n_batch = (test_size + batch_size - 1) // batch_size
-    ranks = []
-    for idx in range(n_batch):
-        print("batch {} / {}".format(idx, n_batch))
-        batch_start = idx * batch_size
-        batch_end = min(test_size, (idx + 1) * batch_size)
-        batch_a = a[batch_start: batch_end]
-        batch_r = r[batch_start: batch_end]
-        emb_ar = embedding[batch_a] * w[batch_r]
-        emb_ar = emb_ar.transpose(0, 1).unsqueeze(2) # size: D x E x 1
-        emb_c = embedding.transpose(0, 1).unsqueeze(1) # size: D x 1 x V
-        # out-prod and reduce sum
-        out_prod = torch.bmm(emb_ar, emb_c) # size D x E x V
-        score = torch.sum(out_prod, dim=0) # size E x V
-        score = torch.sigmoid(score)
-        target = b[batch_start: batch_end]
-        ranks.append(sort_and_rank(score, target))
-    return torch.cat(ranks)
-
-# TODO (lingfan): implement filtered metrics
-# return MRR (raw), and Hits @ (1, 3, 10)
-def calc_mrr(embedding, w, test_triplets, hits=[], eval_bz=100):
+# return MRR (filtered), and Hits @ (1, 3, 10)
+def calc_mrr(embedding, w, test_triplets, all_triplets, hits=[], eval_bz=100):
     with torch.no_grad():
-        s = test_triplets[:, 0]
-        r = test_triplets[:, 1]
-        o = test_triplets[:, 2]
-        test_size = test_triplets.shape[0]
+        
+        ranks_s = []
+        ranks_o = []
 
-        # perturb subject
-        ranks_s = perturb_and_get_rank(embedding, w, o, r, s, test_size, eval_bz)
-        # perturb object
-        ranks_o = perturb_and_get_rank(embedding, w, s, r, o, test_size, eval_bz)
+        head_relation_triplets = all_triplets[:, :2]
+        tail_relation_triplets = torch.stack((all_triplets[:, 2], all_triplets[:, 1])).transpose(0, 1)
+
+        for test_triplet in tqdm(test_triplets):
+
+            # Perturb object
+            subject = test_triplet[0]
+            relation = test_triplet[1]
+            object_ = test_triplet[2]
+
+            subject_relation = test_triplet[:2]
+            delete_index = torch.sum(head_relation_triplets == subject_relation, dim = 1)
+            delete_index = torch.nonzero(delete_index == 2).squeeze()
+
+            delete_entity_index = all_triplets[delete_index, 2].view(-1).numpy()
+            perturb_entity_index = np.array(list(set(np.arange(14541)) - set(delete_entity_index)))
+            perturb_entity_index = torch.from_numpy(perturb_entity_index)
+            perturb_entity_index = torch.cat((perturb_entity_index, object_.view(-1)))
+            
+            emb_ar = embedding[subject] * w[relation]
+            emb_ar = emb_ar.view(-1, 1, 1)
+
+            emb_c = embedding[perturb_entity_index]
+            emb_c = emb_c.transpose(0, 1).unsqueeze(1)
+            
+            out_prod = torch.bmm(emb_ar, emb_c)
+            score = torch.sum(out_prod, dim = 0)
+            score = torch.sigmoid(score)
+            
+            target = torch.tensor(len(perturb_entity_index) - 1)
+            ranks_s.append(sort_and_rank(score, target))
+
+            # Perturb subject
+            object_ = test_triplet[2]
+            relation = test_triplet[1]
+            subject = test_triplet[0]
+
+            object_relation = torch.tensor([object_, relation])
+            delete_index = torch.sum(tail_relation_triplets == object_relation, dim = 1)
+            delete_index = torch.nonzero(delete_index == 2).squeeze()
+
+            delete_entity_index = all_triplets[delete_index, 2].view(-1).numpy()
+            perturb_entity_index = np.array(list(set(np.arange(14541)) - set(delete_entity_index)))
+            perturb_entity_index = torch.from_numpy(perturb_entity_index)
+            perturb_entity_index = torch.cat((perturb_entity_index, subject.view(-1)))
+
+            emb_ar = embedding[object_] * w[relation]
+            emb_ar = emb_ar.view(-1, 1, 1)
+
+            emb_c = embedding[perturb_entity_index]
+            emb_c = emb_c.transpose(0, 1).unsqueeze(1)
+
+            out_prod = torch.bmm(emb_ar, emb_c)
+            score = torch.sum(out_prod, dim = 0)
+            score = torch.sigmoid(score)
+
+            target = torch.tensor(len(perturb_entity_index) - 1)
+            ranks_o.append(sort_and_rank(score, target))
+
+        ranks_s = torch.cat(ranks_s)
+        ranks_o = torch.cat(ranks_o)
 
         ranks = torch.cat([ranks_s, ranks_o])
         ranks += 1 # change to 1-indexed
 
         mrr = torch.mean(1.0 / ranks.float())
-        print("MRR (raw): {:.6f}".format(mrr.item()))
+        print("MRR (filtered): {:.6f}".format(mrr.item()))
 
         for hit in hits:
             avg_count = torch.mean((ranks <= hit).float())
-            print("Hits (raw) @ {}: {:.6f}".format(hit, avg_count.item()))
+            print("Hits (filtered) @ {}: {:.6f}".format(hit, avg_count.item()))
             
     return mrr.item()
