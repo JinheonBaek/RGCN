@@ -77,11 +77,7 @@ def main(args):
                 model.cpu()
 
             model.eval()
-<<<<<<< HEAD
             valid_mrr = valid(valid_triplets, model, test_graph, all_triplets)
-=======
-            valid_mrr = valid(valid_triplets, model, test_graph, all_triplets, eval_batch_size=args.eval_batch_size)
->>>>>>> 9826975c6948c7826a3934a09d53b5b05f2a1787
             
             if valid_mrr > best_mrr:
                 best_mrr = valid_mrr
@@ -99,11 +95,7 @@ def main(args):
     checkpoint = torch.load('best_mrr_model.pth')
     model.load_state_dict(checkpoint['state_dict'])
 
-<<<<<<< HEAD
     test(test_triplets, model, test_graph, all_triplets)
-=======
-    test(test_triplets, model, test_graph, all_triplets, eval_batch_size=args.eval_batch_size)
->>>>>>> 9826975c6948c7826a3934a09d53b5b05f2a1787
 
 if __name__ == '__main__':
 
