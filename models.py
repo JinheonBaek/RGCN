@@ -9,15 +9,15 @@ class RGCN(torch.nn.Module):
     def __init__(self, num_entities, num_relations, num_bases, dropout):
         super(RGCN, self).__init__()
 
-        self.entity_embedding = nn.Embedding(num_entities, 200)
-        self.relation_embedding = nn.Parameter(torch.Tensor(num_relations * 2, 200))
+        self.entity_embedding = nn.Embedding(num_entities, 100)
+        self.relation_embedding = nn.Parameter(torch.Tensor(num_relations, 100))
 
         nn.init.xavier_uniform_(self.relation_embedding, gain=nn.init.calculate_gain('relu'))
 
         self.conv1 = RGCNConv(
-            200, 200, num_relations * 2, num_bases=num_bases)
+            100, 100, num_relations * 2, num_bases=num_bases)
         self.conv2 = RGCNConv(
-            150, 150, num_relations * 2, num_bases=num_bases)
+            100, 100, num_relations * 2, num_bases=num_bases)
 
         self.dropout_ratio = dropout
 

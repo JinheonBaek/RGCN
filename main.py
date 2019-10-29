@@ -1,7 +1,8 @@
 import argparse
-
+import numpy as np
 import torch
 import torch.nn as nn
+from tqdm import tqdm, trange
 
 from utils import load_data, generate_sampled_graph_and_labels, build_test_graph, calc_mrr
 from models import RGCN
@@ -19,17 +20,17 @@ def train(train_triplets, model, use_cuda, batch_size, split_size, negative_samp
 
     return loss
 
-def valid(valid_triplets, model, test_graph, eval_batch_size):
+def valid(valid_triplets, model, test_graph, all_triplets):
 
     entity_embedding = model(test_graph.entity, test_graph.edge_index, test_graph.edge_type, test_graph.edge_norm)
-    mrr = calc_mrr(entity_embedding, model.relation_embedding, valid_triplets, hits=[1, 3, 10], eval_bz=500)
+    mrr = calc_mrr(entity_embedding, model.relation_embedding, valid_triplets, all_triplets, hits=[1, 3, 10])
 
     return mrr
 
-def test(test_triplets, model, test_graph, eval_batch_size):
+def test(test_triplets, model, test_graph, all_triplets):
 
     entity_embedding = model(test_graph.entity, test_graph.edge_index, test_graph.edge_type, test_graph.edge_norm)
-    mrr = calc_mrr(entity_embedding, model.relation_embedding, test_triplets, hits=[1, 3, 10], eval_bz=500)
+    mrr = calc_mrr(entity_embedding, model.relation_embedding, test_triplets, all_triplets, hits=[1, 3, 10])
 
     return mrr
 
@@ -42,9 +43,12 @@ def main(args):
     best_mrr = 0
 
     entity2id, relation2id, train_triplets, valid_triplets, test_triplets = load_data('./data/FB15k-237')
+    all_triplets = torch.LongTensor(np.concatenate((train_triplets, valid_triplets, test_triplets)))
+
     test_graph = build_test_graph(len(entity2id), len(relation2id), train_triplets)
     valid_triplets = torch.LongTensor(valid_triplets)
     test_triplets = torch.LongTensor(test_triplets)
+    
     model = RGCN(len(entity2id), len(relation2id), num_bases=args.n_bases, dropout=args.dropout)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
@@ -53,7 +57,7 @@ def main(args):
     if use_cuda:
         model.cuda()
 
-    for epoch in range(1, (args.n_epochs + 1)):
+    for epoch in trange(1, (args.n_epochs + 1), desc='Epochs', position=0):
 
         model.train()
         optimizer.zero_grad()
@@ -67,13 +71,13 @@ def main(args):
 
         if epoch % args.evaluate_every == 0:
 
-            print("Train Loss {} at epoch {}".format(loss, epoch))
+            tqdm.write("Train Loss {} at epoch {}".format(loss, epoch))
 
             if use_cuda:
                 model.cpu()
 
             model.eval()
-            valid_mrr = valid(valid_triplets, model, test_graph, eval_batch_size=args.eval_batch_size)
+            valid_mrr = valid(valid_triplets, model, test_graph, all_triplets)
             
             if valid_mrr > best_mrr:
                 best_mrr = valid_mrr
@@ -91,7 +95,7 @@ def main(args):
     checkpoint = torch.load('best_mrr_model.pth')
     model.load_state_dict(checkpoint['state_dict'])
 
-    test(test_triplets, model, test_graph, eval_batch_size=args.eval_batch_size)
+    test(test_triplets, model, test_graph, all_triplets)
 
 if __name__ == '__main__':
 
@@ -102,7 +106,6 @@ if __name__ == '__main__':
     parser.add_argument("--negative-sample", type=int, default=1)
     parser.add_argument("--n-epochs", type=int, default=10000)
     parser.add_argument("--evaluate-every", type=int, default=500)
-    parser.add_argument("--eval-batch-size", type=int, default=1000)
     
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--gpu", type=int, default=-1)
