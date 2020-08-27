@@ -170,6 +170,8 @@ def sort_and_rank(score, target):
 def calc_mrr(embedding, w, test_triplets, all_triplets, hits=[]):
     with torch.no_grad():
         
+        num_entity = len(embedding)
+
         ranks_s = []
         ranks_o = []
 
@@ -188,7 +190,7 @@ def calc_mrr(embedding, w, test_triplets, all_triplets, hits=[]):
             delete_index = torch.nonzero(delete_index == 2).squeeze()
 
             delete_entity_index = all_triplets[delete_index, 2].view(-1).numpy()
-            perturb_entity_index = np.array(list(set(np.arange(14541)) - set(delete_entity_index)))
+            perturb_entity_index = np.array(list(set(np.arange(num_entity)) - set(delete_entity_index)))
             perturb_entity_index = torch.from_numpy(perturb_entity_index)
             perturb_entity_index = torch.cat((perturb_entity_index, object_.view(-1)))
             
@@ -215,7 +217,7 @@ def calc_mrr(embedding, w, test_triplets, all_triplets, hits=[]):
             delete_index = torch.nonzero(delete_index == 2).squeeze()
 
             delete_entity_index = all_triplets[delete_index, 0].view(-1).numpy()
-            perturb_entity_index = np.array(list(set(np.arange(14541)) - set(delete_entity_index)))
+            perturb_entity_index = np.array(list(set(np.arange(num_entity)) - set(delete_entity_index)))
             perturb_entity_index = torch.from_numpy(perturb_entity_index)
             perturb_entity_index = torch.cat((perturb_entity_index, subject.view(-1)))
 
