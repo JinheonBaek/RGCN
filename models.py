@@ -23,7 +23,6 @@ class RGCN(torch.nn.Module):
 
     def forward(self, entity, edge_index, edge_type, edge_norm):
         x = self.entity_embedding(entity)
-        x = self.conv1(x, edge_index, edge_type, edge_norm)
         x = F.relu(self.conv1(x, edge_index, edge_type, edge_norm))
         x = F.dropout(x, p = self.dropout_ratio, training = self.training)
         x = self.conv2(x, edge_index, edge_type, edge_norm)
